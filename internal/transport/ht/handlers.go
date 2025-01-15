@@ -3,6 +3,7 @@ package ht
 import (
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"simple_api/internal/repository"
 	"simple_api/internal/service"
@@ -23,25 +24,29 @@ func NewHandler(r *mux.Router, db *sql.DB) {
 	// Создаем маршруты
 	r.HandleFunc("/users", handler.CreateUser).Methods("POST")
 	r.HandleFunc("/users", handler.GetAllUsers).Methods("GET")
-	r.HandleFunc("/users/{id:[0-9]+}", handler.GetUserByID).Methods("GET")
+	// Защищенные маршруты
+	r.HandleFunc("/users/{id:[0-9]+}", handler.GetUserByID).Methods("GET").Handler(AuthMiddleware(http.HandlerFunc(handler.GetUserByID)))
 	r.HandleFunc("/users/{id:[0-9]+}", handler.UpdateUser).Methods("PUT")
 	r.HandleFunc("/users/{id:[0-9]+}", handler.DeleteUser).Methods("DELETE")
-}
+    }
 
-// Создание пользователя
+
+
+
 func (h *UserHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
 	var user service.User
 	err := json.NewDecoder(r.Body).Decode(&user)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		http.Error(w, "Invalid input", http.StatusBadRequest)
 		return
 	}
 
-	// Проверка на наличие пароля
+	
 	if user.Password == "" {
 		http.Error(w, "Password is required", http.StatusBadRequest)
 		return
 	}
+
 
 	createdUser, err := h.repo.Create(user.Name, user.Email, user.Password)
 	if err != nil {
@@ -49,10 +54,24 @@ func (h *UserHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Генерируем токен
+	token, err := service.GenerateToken(createdUser.ID)
+	if err != nil {
+		http.Error(w, "Unable to generate token", http.StatusInternalServerError)
+		return
+	}
+
+	// Возвращаем токен и данные пользователя
+	response := map[string]interface{}{
+		"user":  createdUser,
+		"token": token,
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(createdUser)
+	json.NewEncoder(w).Encode(response)
 }
+
 
 // Получение всех пользователей
 func (h *UserHandler) GetAllUsers(w http.ResponseWriter, r *http.Request) {
@@ -66,9 +85,19 @@ func (h *UserHandler) GetAllUsers(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(users)
 }
 
-// Получение пользователя по ID
+
 func (h *UserHandler) GetUserByID(w http.ResponseWriter, r *http.Request) {
+	// Извлекаем user_id из контекста
+	userID := r.Context().Value("user_id").(int)
+
+	// Если пользователь пытается получить данные не о себе, возвращаем ошибку
 	id := mux.Vars(r)["id"]
+	if id != fmt.Sprint(userID) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+
+	// Дальше идет обычная логика
 	user, err := h.repo.GetByID(id)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusNotFound)
@@ -79,7 +108,7 @@ func (h *UserHandler) GetUserByID(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(user)
 }
 
-// Обновление пользователя
+
 func (h *UserHandler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 	id := mux.Vars(r)["id"]
 	var user service.User
@@ -99,7 +128,7 @@ func (h *UserHandler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(updatedUser)
 }
 
-// Удаление пользователя
+
 func (h *UserHandler) DeleteUser(w http.ResponseWriter, r *http.Request) {
 	id := mux.Vars(r)["id"]
 	err := h.repo.Delete(id)

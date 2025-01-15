@@ -26,7 +26,7 @@ func (r *UserRepository) Create(name,email,password string) (service.User,error)
 
 	user.Name = name
 	user.Email = email
-	user.Password = password // Устанавливаем пароль
+	user.Password = password 
 	return user, nil
 
 }
@@ -63,13 +63,13 @@ func (r *UserRepository) GetByID(id string) (service.User, error) {
 }
 
 func (r *UserRepository) Update(id, name, password, email string) (service.User, error) {
-	// Обновляем данные пользователя
+	
 	_, err := r.db.Exec("UPDATE users SET name = $1, email = $2, password = $3 WHERE id = $4", name, email, password, id)
 	if err != nil {
 		return service.User{}, fmt.Errorf("unable to update user: %w", err)
 	}
 
-	// Получаем обновленные данные пользователя
+	
 	return r.GetByID(id)
 }
 
